@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ModelCategory {
+  CHAT
+  REASONING
+  CODING
+  MULTIMODAL
+  IMAGE
+  AUDIO
+  EMBEDDING
+  RERANKING
+}
+
+enum FreeTierStatus {
+  RECURRING_FREE
+  LIMITED_QUOTA
+  TRIAL_CREDITS
+  FREE_WITH_PAYMENT_METHOD
+  PAID
+  LOCAL
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  name          String?
+  role          Role     @default(USER)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  credentials   EncryptedProviderCredential[]
+  conversations Conversation[]
+  favorites     FavoriteModel[]
+  usageRecords  UsageRecord[]
+
+  @@index([email])
+}
+
+model Provider {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  description     String
+  officialWebsite String
+  docsUrl         String
+  keySignupUrl    String
+  freeTierSummary String
+  isConfigurable  Boolean  @default(true)
+  isOfficial      Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  models          Model[]
+  credentials     EncryptedProviderCredential[]
+
+  @@index([slug])
+}
+
+model Model {
+  id                     String         @id @default(cuid())
+  slug                   String         @unique
+  name                   String
+  providerId             String
+  category               ModelCategory  @default(CHAT)
+  description            String
+  supportedCapabilities  String[]       @default([])
+  contextWindow          Int?
+  inputModalities        String[]       @default(["text"])
+  outputModalities       String[]       @default(["text"])
+  apiCompatibility       String         @default("openai-compatible")
+  freeTierStatus         FreeTierStatus @default(PAID)
+  inputPricingPerMillion Float?
+  outputPricingPerMillion Float?
+  rateLimitInfo          String?
+  officialDocUrl         String
+  officialKeyUrl         String
+  isOpenWeight           Boolean        @default(false)
+  isVerified             Boolean        @default(true)
+  lastVerifiedAt         DateTime       @default(now())
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  provider               Provider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  favorites              FavoriteModel[]
+  messages               Message[]
+  usageRecords           UsageRecord[]
+  metadataChecks         ModelMetadataCheck[]
+
+  @@index([providerId])
+  @@index([category])
+  @@index([freeTierStatus])
+  @@index([slug])
+}
+
+model EncryptedProviderCredential {
+  id           String    @id @default(cuid())
+  userId       String
+  providerId   String
+  encryptedKey String
+  iv           String
+  authTag      String
+  keyMask      String
+  keyName      String?
+  isValid      Boolean   @default(false)
+  lastTestedAt DateTime?
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerId])
+  @@index([userId])
+  @@index([providerId])
+}
+
+model Conversation {
+  id           String    @id @default(cuid())
+  userId       String
+  title        String    @default("New Conversation")
+  providerId   String
+  modelId      String
+  systemPrompt String?
+  temperature  Float     @default(0.7)
+  maxTokens    Int       @default(2048)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@index([userId])
+  @@index([updatedAt])
+}
+
+model Message {
+  id                   String       @id @default(cuid())
+  conversationId       String
+  role                 String
+  content              String
+  tokenUsagePrompt     Int?
+  tokenUsageCompletion Int?
+  latencyMs            Int?
+  modelId              String?
+  error                String?
+  createdAt            DateTime     @default(now())
+
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  model                Model?       @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId])
+}
+
+model FavoriteModel {
+  id        String   @id @default(cuid())
+  userId    String
+  modelId   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model     Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, modelId])
+  @@index([userId])
+  @@index([modelId])
+}
+
+model UsageRecord {
+  id               String   @id @default(cuid())
+  userId           String
+  providerId       String
+  modelId          String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  latencyMs        Int      @default(0)
+  status           String   @default("success")
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model            Model?   @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([providerId])
+  @@index([createdAt])
+}
+
+model ModelMetadataCheck {
+  id           String   @id @default(cuid())
+  modelId      String
+  status       String
+  checkDetails String?
+  latencyMs    Int?
+  checkedAt    DateTime @default(now())
+
+  model        Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId])
+  @@index([checkedAt])
+}
